@@ -9,7 +9,7 @@
 #   TASKMASTER_MAX          Max number of blocks before allowing stop (default: 0 = infinite)
 #   TASKMASTER_DONE_PREFIX  Prefix for done token (default: TASKMASTER_DONE)
 #
-set -euo pipefail
+set -u
 
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id')
@@ -43,14 +43,21 @@ DONE_SIGNAL="${DONE_PREFIX}::${SESSION_ID}"
 HAS_DONE_SIGNAL=false
 HAS_RECENT_ERRORS=false
 
-if [ -f "$TRANSCRIPT" ]; then
-  TAIL_400=$(tail -400 "$TRANSCRIPT" 2>/dev/null || true)
-  if echo "$TAIL_400" | grep -Fq "$DONE_SIGNAL" 2>/dev/null; then
+# Primary: check last_assistant_message (most reliable — no transcript parsing needed)
+LAST_MSG=$(echo "$INPUT" | jq -r '.last_assistant_message // ""')
+if [ -n "$LAST_MSG" ] && echo "$LAST_MSG" | grep -Fq "$DONE_SIGNAL" 2>/dev/null; then
+  HAS_DONE_SIGNAL=true
+fi
+
+
+# Fallback: check transcript file if last_assistant_message didn't match
+if [ "$HAS_DONE_SIGNAL" = false ] && [ -f "$TRANSCRIPT" ]; then
+  # Use grep directly on file (avoids broken-pipe with echo|grep under pipefail)
+  if tail -400 "$TRANSCRIPT" 2>/dev/null | grep -Fq "$DONE_SIGNAL"; then
     HAS_DONE_SIGNAL=true
   fi
 
-  TAIL_40=$(tail -40 "$TRANSCRIPT" 2>/dev/null || true)
-  if echo "$TAIL_40" | grep -qi '"is_error":\s*true' 2>/dev/null; then
+  if tail -40 "$TRANSCRIPT" 2>/dev/null | grep -qi '"is_error":\s*true'; then
     HAS_RECENT_ERRORS=true
   fi
 fi
