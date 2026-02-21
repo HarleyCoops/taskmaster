@@ -2,37 +2,46 @@
 name: taskmaster
 description: |
   Stop hook that keeps the agent working until all plans and user requests are
-  100% complete. Fires when the agent tries to stop, re-examines the plan and
-  task list, and forces continuation if anything is unfinished. Prevents
-  premature stopping on multi-step tasks.
+  100% complete. Fires on every stop attempt until the agent emits an explicit
+  parseable done signal in its final response. Provides deterministic machine
+  detection for true completion.
 author: blader
-version: 1.0.0
+version: 2.1.0
 ---
 
 # Taskmaster
 
-A stop hook that prevents the agent from stopping prematurely. When a response
-finishes and the agent is about to stop, this hook intercepts and prompts it
-to re-examine whether all work is truly done.
+A stop hook that prevents the agent from stopping prematurely. When the agent
+is about to stop, this hook checks for a session-specific done token in the
+transcript. If the token is missing, it blocks the stop and forces another
+completion review cycle.
 
 ## How It Works
 
-1. **Agent tries to stop** — the stop hook fires.
-2. **The hook checks** for incomplete signals (pending tasks, recent errors).
-3. **Agent is prompted** to verify: original requests addressed, plan steps
-   completed, tasks resolved, errors fixed, no loose ends.
-4. **If work remains**, the agent continues. If truly done, it confirms and
-   the hook allows the stop on the next cycle.
+1. **Agent tries to stop** — the stop hook fires every time.
+2. **Hook scans transcript** for a parseable token:
+   `TASKMASTER_DONE::<session_id>`
+3. **Token missing** — hook blocks stop and injects a checklist plus the exact
+   token to emit when truly done.
+4. **Token present** — hook allows stop and clears session counter state.
 
-## Loop Protection
+## Parseable Done Signal
 
-A session-scoped counter limits continuations to **10 by default**. Set
-`TASKMASTER_MAX` environment variable to change:
+When the work is genuinely complete, the agent must include this exact line
+in its final response (on its own line):
 
-```bash
-export TASKMASTER_MAX=20  # allow up to 20 continuations
-export TASKMASTER_MAX=0   # infinite — never cap (relies on stop_hook_active check only)
+```text
+TASKMASTER_DONE::<session_id>
 ```
+
+This gives external automation a deterministic completion marker to parse.
+
+## Configuration
+
+- `TASKMASTER_MAX` (default `0`): Max number of blocked stop attempts before
+  allowing stop. `0` means infinite (keep firing).
+- `TASKMASTER_DONE_PREFIX` (default `TASKMASTER_DONE`): Prefix used for the
+  done token.
 
 ## Setup
 
@@ -58,6 +67,5 @@ The hook must be registered in `~/.claude/settings.json`:
 
 ## Disabling
 
-To temporarily disable, either:
-- Remove or comment out the Stop hook in `~/.claude/settings.json`
-- Set `TASKMASTER_MAX=1` to allow only one continuation check
+To temporarily disable, remove or comment out the Stop hook in
+`~/.claude/settings.json`.
