@@ -168,6 +168,7 @@ install_claude() {
 
   mkdir -p "$CLAUDE_HOOKS_DIR"
   ln -sf "$CLAUDE_SKILL_DIR/check-completion.sh" "$CLAUDE_HOOK_LINK"
+  ln -sf "$CLAUDE_SKILL_DIR/taskmaster-compliance-prompt.sh" "$CLAUDE_HOOKS_DIR/taskmaster-compliance-prompt.sh"
   chmod +x "$CLAUDE_HOOK_LINK"
 
   echo "  Claude: installed skill files to $CLAUDE_SKILL_DIR"
