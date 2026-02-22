@@ -1,13 +1,11 @@
 # Taskmaster
 
-A Codex session-log monitor + same-process continuation wrapper that prevents
-premature stopping and emits a deterministic, parseable completion signal.
+A completion gate for coding agents. Taskmaster blocks premature stop and
+enforces a deterministic, parseable completion signal.
 
-Codex TUI currently lacks arbitrary writable event hooks
-([openai/codex#2109](https://github.com/openai/codex/issues/2109)). Taskmaster
-implements equivalent behavior externally by reading
-`CODEX_TUI_SESSION_LOG_PATH` and injecting continuation prompts into the same
-running Codex process using either tmux transport or expect-PTY transport.
+Supported modes:
+- Codex CLI: session-log monitor + same-process continuation via expect PTY.
+- Claude Code: native `Stop` hook command using `check-completion.sh`.
 
 ## Behavior
 
@@ -17,14 +15,7 @@ Taskmaster enforces a session-specific done token:
 TASKMASTER_DONE::<session_id>
 ```
 
-When missing at `task_complete`, Taskmaster marks the turn incomplete and can
-automatically inject a continuation user message to keep execution going.
-
-Mode selection:
-- `TASKMASTER_MODE=auto` (default): prefer tmux if a pane is detected, else
-  use expect PTY transport.
-- `TASKMASTER_MODE=tmux`: force tmux transport.
-- `TASKMASTER_MODE=expect`: force expect PTY transport.
+If that token is missing when the agent tries to stop, Taskmaster blocks stop.
 
 ## Install
 
@@ -36,7 +27,7 @@ This will:
 - Ensure files are present under `~/.codex/skills/taskmaster/`
 - Create launcher symlink `~/.codex/bin/codex-taskmaster`
 
-## Run
+## Codex Usage
 
 ```bash
 codex-taskmaster [codex args]
@@ -55,7 +46,40 @@ codex-taskmaster "profile and fix import memory usage"
 codex-taskmaster -- --search
 ```
 
-## Direct Monitor Usage
+## Claude Usage (Stop Hook)
+
+1. Make the skill visible to Claude and ensure hook script is executable:
+
+```bash
+mkdir -p ~/.claude/skills
+ln -sfn ~/.codex/skills/taskmaster ~/.claude/skills/taskmaster
+chmod +x ~/.claude/skills/taskmaster/check-completion.sh
+```
+
+2. Add a `Stop` hook in `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/skills/taskmaster/check-completion.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+If your settings file uses direct hook events (without the `hooks` wrapper),
+use the same `Stop` array at top level.
+
+## Codex Direct Monitor Usage
 
 If you only want read-only monitoring:
 
@@ -70,31 +94,16 @@ bash ~/.codex/skills/taskmaster/hooks/check-completion-codex.sh \
 
 ## Configuration
 
-- `TASKMASTER_DONE_PREFIX` (default `TASKMASTER_DONE`)
-  - token format: `<prefix>::<session_id>`
-- `TASKMASTER_AUTORESUME` (default `1`)
-  - `1`: enable auto-injection when token is missing
-  - `0`: disable auto-injection
-- `TASKMASTER_AUTORESUME_MAX` (default `0`)
-  - `0`: unlimited auto-injections
-  - `>0`: max injections before stop
 - `TASKMASTER_MAX` (default `0`)
-  - monitor warning cap (`0` = unlimited warnings)
-- `TASKMASTER_POLL_INTERVAL` (default `0.5`)
-  - monitor poll interval (seconds)
-- `TASKMASTER_MODE` (default `auto`)
-  - `auto`: tmux when available, else expect
-  - `tmux`: force tmux transport
-  - `expect`: force expect PTY transport
-- `TASKMASTER_TMUX_PANE`
-  - optional explicit tmux pane id override (example: `%7`)
+  - warning cap (`0` = unlimited warnings)
 - `TASKMASTER_LOG_PATH`
-  - optional fixed session log path (debugging only)
-- `TASKMASTER_EXPECT_PASTE_MODE` (default `bracketed`)
-  - `bracketed`: send injected text as bracketed paste, then submit
-  - `plain`: send raw text bytes, then submit
-- `TASKMASTER_EXPECT_SUBMIT_DELAY_MS` (default `180`)
-  - delay before submit key in expect mode (helps avoid paste-burst Enter suppression)
+  - optional fixed session log path for `codex-taskmaster`
+
+Fixed behavior (not configurable):
+- done token prefix is always `TASKMASTER_DONE`
+- poll interval is always `1` second
+- transport is expect-only
+- expect bridge always uses bracketed paste with fixed submit timing
 
 ## Uninstall
 
@@ -104,7 +113,7 @@ bash ~/.codex/skills/taskmaster/uninstall.sh
 
 ## Notes
 
-- Codex logging needs both variables:
+- Codex wrapper mode needs both variables:
   - `CODEX_TUI_RECORD_SESSION=1`
   - `CODEX_TUI_SESSION_LOG_PATH=<path>`
 - The done token is session-specific, so automation can parse completion deterministically.
@@ -112,11 +121,13 @@ bash ~/.codex/skills/taskmaster/uninstall.sh
 
 ## Requirements
 
-- Codex CLI
 - `jq`
 - `bash`
-- `tmux` (for tmux transport)
-- `expect` (for non-tmux same-process transport)
+- Codex mode:
+  - Codex CLI
+  - `expect`
+- Claude mode:
+  - Claude Code with `Stop` hooks enabled
 
 ## License
 

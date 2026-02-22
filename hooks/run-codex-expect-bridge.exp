@@ -14,36 +14,19 @@ if {$argc < 2} {
 
 set queue_dir [lindex $argv 0]
 set cmd [lrange $argv 1 end]
+set submit_delay_ms 180
 
 if {![file isdirectory $queue_dir]} {
   file mkdir $queue_dir
 }
 
-proc env_or_default {name default_value} {
-  if {[info exists ::env($name)] && [string length $::env($name)] > 0} {
-    return $::env($name)
-  }
-  return $default_value
-}
-
-proc send_injected_payload {payload} {
-  set paste_mode [string tolower [env_or_default "TASKMASTER_EXPECT_PASTE_MODE" "bracketed"]]
-  set submit_delay_ms [env_or_default "TASKMASTER_EXPECT_SUBMIT_DELAY_MS" "180"]
-
-  if {![string is integer -strict $submit_delay_ms] || $submit_delay_ms < 0} {
-    set submit_delay_ms 180
-  }
-
+proc send_injected_payload {payload submit_delay_ms} {
   if {[string length $payload] > 0} {
-    if {$paste_mode eq "bracketed"} {
-      # Mirror terminal bracketed-paste framing so Codex treats this as paste,
-      # not as a rapid key burst where Enter can be interpreted as newline.
-      send -- "\033\[200~"
-      send -- $payload
-      send -- "\033\[201~"
-    } else {
-      send -- $payload
-    }
+    # Always use bracketed paste framing so Codex treats this as paste,
+    # not as a rapid key burst where Enter can be interpreted as newline.
+    send -- "\033\[200~"
+    send -- $payload
+    send -- "\033\[201~"
   }
 
   if {$submit_delay_ms > 0} {
@@ -52,7 +35,7 @@ proc send_injected_payload {payload} {
   send -- "\r"
 }
 
-proc inject_pending {queue_dir} {
+proc inject_pending {queue_dir submit_delay_ms} {
   set files [lsort [glob -nocomplain -types f -- "$queue_dir/inject.*.txt"]]
 
   foreach f $files {
@@ -66,19 +49,19 @@ proc inject_pending {queue_dir} {
 
     file delete -force -- $f
 
-    send_injected_payload $payload
+    send_injected_payload $payload $submit_delay_ms
   }
 }
 
-proc periodic_inject {queue_dir} {
-  inject_pending $queue_dir
-  after 200 [list periodic_inject $queue_dir]
+proc periodic_inject {queue_dir submit_delay_ms} {
+  inject_pending $queue_dir $submit_delay_ms
+  after 200 [list periodic_inject $queue_dir $submit_delay_ms]
 }
 
 spawn -noecho {*}$cmd
 log_user 1
 
-periodic_inject $queue_dir
+periodic_inject $queue_dir $submit_delay_ms
 interact
 
 set ws [wait]

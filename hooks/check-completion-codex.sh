@@ -28,17 +28,15 @@ Options:
 
 Env:
   CODEX_TUI_SESSION_LOG_PATH  Default log path when --log is omitted.
-  TASKMASTER_DONE_PREFIX      Done token prefix (default: TASKMASTER_DONE).
   TASKMASTER_MAX              Max warning count before warning suppression.
-  TASKMASTER_POLL_INTERVAL    Poll interval in seconds for --follow (default: 0.5).
 EOF
 }
 
 LOG_PATH="${CODEX_TUI_SESSION_LOG_PATH:-}"
 FOLLOW=0
 QUIET=0
-POLL_INTERVAL="${TASKMASTER_POLL_INTERVAL:-0.5}"
-DONE_PREFIX="${TASKMASTER_DONE_PREFIX:-TASKMASTER_DONE}"
+POLL_INTERVAL="1"
+DONE_PREFIX="TASKMASTER_DONE"
 MAX_WARNINGS="${TASKMASTER_MAX:-0}"
 
 while [[ $# -gt 0 ]]; do

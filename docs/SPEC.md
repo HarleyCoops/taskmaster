@@ -1,10 +1,10 @@
 # Taskmaster
 ## Product & Technical Specification
 
-**Version**: 4.1.0  
+**Version**: 4.2.0  
 **Scope**:
 - `taskmaster/hooks/check-completion-codex.sh`
-- `taskmaster/hooks/inject-continue-codex-tmux.sh`
+- `taskmaster/hooks/inject-continue-codex.sh`
 - `taskmaster/hooks/run-codex-expect-bridge.exp`
 - `taskmaster/run-taskmaster-codex.sh`
 - `taskmaster/SKILL.md`
@@ -62,21 +62,20 @@ Decision flow:
 Wrapper behavior:
 
 1. Starts Codex with session logging enabled.
-2. Selects same-process transport:
-   - tmux pane injector, or
-   - expect PTY bridge with file-queue injector.
-3. If completion token is missing and auto-resume is enabled:
-   - injects a new user message into the same pane/process
-4. Continues until completion token is emitted or injection cap is reached.
+2. Starts queue-emitter injector.
+3. Runs Codex inside expect PTY bridge.
+4. If completion token is missing:
+   - injects a new user message into the same running process.
+5. Continues until completion token is emitted.
 
-### 3.4 Same-Process Injector (`hooks/inject-continue-codex-tmux.sh`)
+### 3.4 Queue Emitter (`hooks/inject-continue-codex.sh`)
 
 Injector behavior:
 
 1. Follows the active session log for `task_complete`/`turn_complete`.
 2. For each completed turn without done token:
    - builds continuation prompt
-   - injects prompt into target pane with `tmux paste-buffer` + `send-keys Enter`
+   - writes prompt as queue file (`inject.*.txt`)
 3. Uses turn-id/signature dedupe to avoid duplicate injection on re-read.
 
 ### 3.5 Expect PTY Bridge (`hooks/run-codex-expect-bridge.exp`)
@@ -86,8 +85,7 @@ Bridge behavior:
 1. Spawns Codex inside a managed PTY.
 2. Polls queue files emitted by injector (`inject.*.txt`).
 3. Sends queued prompt text into the same running Codex PTY using bracketed
-   paste framing by default, then submits with Enter after a short delay.
-4. Supports env-tunable fallback to raw byte paste mode.
+   paste framing, then submits with Enter after a fixed short delay.
 
 ## 4. Runtime Interfaces
 
@@ -95,9 +93,7 @@ Bridge behavior:
 
 - `--log <path>` or `CODEX_TUI_SESSION_LOG_PATH`
 - `--follow` (optional)
-- `TASKMASTER_DONE_PREFIX`
 - `TASKMASTER_MAX`
-- `TASKMASTER_POLL_INTERVAL`
 
 ### 4.2 Monitor Exit Codes
 
@@ -108,19 +104,18 @@ Bridge behavior:
 
 ## 5. Configuration
 
-- `TASKMASTER_DONE_PREFIX` (default `TASKMASTER_DONE`)
-- `TASKMASTER_AUTORESUME` (default `1`)
-- `TASKMASTER_AUTORESUME_MAX` (default `0` = unlimited)
-- `TASKMASTER_MAX` (warning cap for monitor)
-- `TASKMASTER_POLL_INTERVAL` (default `0.5` seconds)
-- `TASKMASTER_MODE` (`auto`, `tmux`, `expect`)
-- `TASKMASTER_TMUX_PANE` (optional explicit target pane)
-- `TASKMASTER_LOG_PATH` (optional fixed log path)
-- `TASKMASTER_EXPECT_PASTE_MODE` (`bracketed` or `plain`)
-- `TASKMASTER_EXPECT_SUBMIT_DELAY_MS` (delay before Enter in expect mode)
+Configurable:
+- `TASKMASTER_MAX` (default `0`): monitor warning cap
+- `TASKMASTER_LOG_PATH`: optional fixed log path
+
+Fixed (not configurable):
+- done token prefix: `TASKMASTER_DONE`
+- poll interval: `1` second
+- transport: expect only
+- expect payload mode + submit delay
 
 ## 6. Operational Notes
 
 - This is not a native stop hook; it is external control-plane logic.
-- In tmux/expect modes, injection is same-process (new user message into current process).
+- Injection is same-process (new user message into current Codex process).
 - For strict CI-style checks, run monitor in analyze mode and require exit `0`.

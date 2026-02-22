@@ -7,7 +7,6 @@
 #
 # Optional env vars:
 #   TASKMASTER_MAX          Max number of blocks before allowing stop (default: 0 = infinite)
-#   TASKMASTER_DONE_PREFIX  Prefix for done token (default: TASKMASTER_DONE)
 #
 set -u
 
@@ -38,8 +37,7 @@ if [ -f "$COUNTER_FILE" ]; then
 fi
 
 # --- done signal detection ---
-DONE_PREFIX="${TASKMASTER_DONE_PREFIX:-TASKMASTER_DONE}"
-DONE_SIGNAL="${DONE_PREFIX}::${SESSION_ID}"
+DONE_SIGNAL="TASKMASTER_DONE::${SESSION_ID}"
 HAS_DONE_SIGNAL=false
 HAS_RECENT_ERRORS=false
 

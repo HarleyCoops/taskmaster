@@ -40,7 +40,7 @@ safe_copy "$SCRIPT_DIR/run-taskmaster-codex.sh" "$SKILL_DIR/run-taskmaster-codex
 safe_copy "$SCRIPT_DIR/check-completion.sh" "$SKILL_DIR/check-completion.sh"
 safe_copy "$SCRIPT_DIR/hooks/check-completion.sh" "$SKILL_DIR/hooks/check-completion.sh"
 safe_copy "$SCRIPT_DIR/hooks/check-completion-codex.sh" "$SKILL_DIR/hooks/check-completion-codex.sh"
-safe_copy "$SCRIPT_DIR/hooks/inject-continue-codex-tmux.sh" "$SKILL_DIR/hooks/inject-continue-codex-tmux.sh"
+safe_copy "$SCRIPT_DIR/hooks/inject-continue-codex.sh" "$SKILL_DIR/hooks/inject-continue-codex.sh"
 safe_copy "$SCRIPT_DIR/hooks/run-codex-expect-bridge.exp" "$SKILL_DIR/hooks/run-codex-expect-bridge.exp"
 
 chmod +x "$SKILL_DIR/install.sh"
@@ -49,7 +49,7 @@ chmod +x "$SKILL_DIR/run-taskmaster-codex.sh"
 chmod +x "$SKILL_DIR/check-completion.sh"
 chmod +x "$SKILL_DIR/hooks/check-completion.sh"
 chmod +x "$SKILL_DIR/hooks/check-completion-codex.sh"
-chmod +x "$SKILL_DIR/hooks/inject-continue-codex-tmux.sh"
+chmod +x "$SKILL_DIR/hooks/inject-continue-codex.sh"
 chmod +x "$SKILL_DIR/hooks/run-codex-expect-bridge.exp"
 
 echo "  Installed skill files to $SKILL_DIR"
