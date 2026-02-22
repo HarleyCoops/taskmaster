@@ -1,55 +1,33 @@
 # Taskmaster
 
-A completion gate for coding agents. Taskmaster blocks premature stop and
-enforces a deterministic, parseable completion signal.
+Taskmaster is a completion guard for coding agents.
 
-## Intention
+It addresses a common failure mode: the agent makes partial progress, writes a
+summary, and stops before the user goal is actually finished.
 
-Most agent runs fail in a predictable way: the model makes partial progress,
-summarizes, and stops before the user goal is actually complete. Taskmaster is
-designed to close that gap.
+## Core Contract
 
-The goal is simple:
-- force explicit completion instead of implied completion
-- keep the same live session moving when work is incomplete
-- make completion machine-verifiable for automation and tooling
-
-## Solution
-
-Taskmaster enforces one contract across both agents:
-- Completion must include a session-scoped token:
+A run is complete only when the assistant emits:
 
 ```text
 TASKMASTER_DONE::<session_id>
 ```
 
-If the token is missing at stop time, Taskmaster blocks stop and forces another
-execution loop.
+If that token is missing at stop time, Taskmaster blocks stop and pushes the
+session to continue.
 
-Supported modes:
-- Codex CLI: session-log monitor + same-process continuation via expect PTY.
-- Claude Code: native `Stop` hook command using `check-completion.sh`.
+## How It Works
 
-## Behavior
-
-Taskmaster enforces a session-specific done token:
-
-```text
-TASKMASTER_DONE::<session_id>
-```
-
-If that token is missing when the agent tries to stop, Taskmaster blocks stop.
-
-## Prompting Model
-
-Taskmaster uses corrective continuation prompts with a strict intention:
-- re-anchor the model to the original user goal
-- require implementation + verification before stop
-- forbid premature done-token emission
-
-In Codex mode, continuation prompts are injected into the same running process
-through the expect bridge. In Claude mode, the Stop hook blocks stop and
-returns the corrective prompt as hook feedback.
+- Codex path:
+  - Runs through a wrapper (`codex` shim / `codex-taskmaster` launcher).
+  - Enables Codex session logs.
+  - Watches `task_complete` / `turn_complete` events.
+  - If done token is missing, injects a continuation prompt into the same
+    running Codex process via expect PTY.
+- Claude path:
+  - Registers a `Stop` command hook.
+  - Hook runs `check-completion.sh`.
+  - If done token is missing, the stop is blocked with corrective feedback.
 
 ## Install
 
@@ -57,14 +35,13 @@ returns the corrective prompt as hook feedback.
 bash ~/.codex/skills/taskmaster/install.sh
 ```
 
-`install.sh` auto-detects your environment and installs for:
-- Codex when `codex` or `~/.codex` is present
-- Claude when `claude` or `~/.claude` is present
-- Both when both are detected
+Auto-detection behavior:
+- Installs Codex integration when `codex` or `~/.codex` exists.
+- Installs Claude integration when `claude` or `~/.claude` exists.
+- If both are present, installs both.
+- If neither is detected, defaults to both.
 
-If neither is detected, it defaults to installing both.
-
-Override target selection with:
+Optional target override:
 
 ```bash
 TASKMASTER_INSTALL_TARGET=codex bash ~/.codex/skills/taskmaster/install.sh
@@ -72,7 +49,7 @@ TASKMASTER_INSTALL_TARGET=claude bash ~/.codex/skills/taskmaster/install.sh
 TASKMASTER_INSTALL_TARGET=both bash ~/.codex/skills/taskmaster/install.sh
 ```
 
-What gets installed:
+Installed artifacts:
 - Codex:
   - `~/.codex/skills/taskmaster/`
   - `~/.codex/bin/codex-taskmaster`
@@ -80,23 +57,31 @@ What gets installed:
 - Claude:
   - `~/.claude/skills/taskmaster/`
   - `~/.claude/hooks/taskmaster-check-completion.sh`
-  - Stop hook registration in `~/.claude/settings.json`
+  - Stop-hook entry added to `~/.claude/settings.json`
 
-## Codex Usage
+## Usage
+
+### Codex
+
+Run normally:
 
 ```bash
-codex [codex args]
+codex [args]
 ```
 
-`codex-taskmaster` remains available as an explicit alias.
+Explicit alias is also available:
 
-## Claude Usage
+```bash
+codex-taskmaster [args]
+```
 
-After install, the Stop hook is configured automatically. Run Claude normally.
+### Claude
 
-## Codex Direct Monitor Usage
+Run Claude normally after install. Taskmaster hook enforcement is automatic.
 
-If you only want read-only monitoring:
+## Monitor-Only Mode (Codex)
+
+Use this if you only want read-only completion checks:
 
 ```bash
 CODEX_TUI_RECORD_SESSION=1 \
@@ -109,8 +94,9 @@ bash ~/.codex/skills/taskmaster/hooks/check-completion-codex.sh \
 
 ## Configuration
 
-- `TASKMASTER_MAX` (default `0`)
-  - warning cap (`0` = unlimited warnings)
+- `TASKMASTER_MAX` (default `0`):
+  - Limits warning count in monitors.
+  - `0` means unlimited warnings.
 
 ## Uninstall
 
@@ -118,10 +104,10 @@ bash ~/.codex/skills/taskmaster/hooks/check-completion-codex.sh \
 bash ~/.codex/skills/taskmaster/uninstall.sh
 ```
 
-`uninstall.sh` auto-detects Codex/Claude and removes Taskmaster from whichever
-is present.
+Auto-detection behavior mirrors install and removes Taskmaster from detected
+Codex/Claude environments.
 
-Override target selection with:
+Optional target override:
 
 ```bash
 TASKMASTER_UNINSTALL_TARGET=codex bash ~/.codex/skills/taskmaster/uninstall.sh
@@ -131,14 +117,14 @@ TASKMASTER_UNINSTALL_TARGET=both bash ~/.codex/skills/taskmaster/uninstall.sh
 
 ## Requirements
 
-- `jq`
 - `bash`
-- Codex mode:
+- `jq`
+- Codex integration:
   - Codex CLI
   - `expect`
-- Claude mode:
+- Claude integration:
   - Claude Code with `Stop` hooks enabled
-  - `python3` (used by install/uninstall to update `settings.json`)
+  - `python3` (for install/uninstall settings updates)
 
 ## License
 
