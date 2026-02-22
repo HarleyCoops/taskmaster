@@ -84,15 +84,10 @@ if [[ -n "$first_non_option" ]] && is_known_subcommand "$first_non_option"; then
   exec "$REAL_CODEX_BIN" "${ORIGINAL_ARGS[@]}"
 fi
 
-CUSTOM_LOG_PATH="${TASKMASTER_LOG_PATH:-}"
 PASSTHROUGH_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --log)
-      CUSTOM_LOG_PATH="${2:-}"
-      shift 2
-      ;;
     --)
       shift
       while [[ $# -gt 0 ]]; do
@@ -129,11 +124,6 @@ fi
 
 build_log_path() {
   local timestamp
-
-  if [[ -n "$CUSTOM_LOG_PATH" ]]; then
-    echo "$CUSTOM_LOG_PATH"
-    return 0
-  fi
 
   timestamp="$(date -u +%Y%m%dT%H%M%SZ)-$$-1"
   echo "$HOME/.codex/log/taskmaster-session-${timestamp}.jsonl"

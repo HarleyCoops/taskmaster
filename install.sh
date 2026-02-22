@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
 #
-# Taskmaster installer for Codex
-#
-# Installs Taskmaster scripts into ~/.codex/skills/taskmaster and creates
-# a convenience launcher at ~/.codex/bin/codex-taskmaster.
+# Taskmaster installer for Codex and Claude.
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SKILL_DIR="$HOME/.codex/skills/taskmaster"
-BIN_DIR="$HOME/.codex/bin"
-LAUNCHER_LINK="$BIN_DIR/codex-taskmaster"
-CODEX_SHIM_LINK="$BIN_DIR/codex"
+CODEX_ROOT="$HOME/.codex"
+CLAUDE_ROOT="$HOME/.claude"
+
+CODEX_SKILL_DIR="$CODEX_ROOT/skills/taskmaster"
+CLAUDE_SKILL_DIR="$CLAUDE_ROOT/skills/taskmaster"
+
+CODEX_BIN_DIR="$CODEX_ROOT/bin"
+CODEX_LAUNCHER_LINK="$CODEX_BIN_DIR/codex-taskmaster"
+CODEX_SHIM_LINK="$CODEX_BIN_DIR/codex"
+
+CLAUDE_HOOKS_DIR="$CLAUDE_ROOT/hooks"
+CLAUDE_HOOK_LINK="$CLAUDE_HOOKS_DIR/taskmaster-check-completion.sh"
+CLAUDE_SETTINGS_PATH="$CLAUDE_ROOT/settings.json"
+CLAUDE_HOOK_COMMAND="~/.claude/hooks/taskmaster-check-completion.sh"
 
 safe_copy() {
   local src="$1"
@@ -23,49 +30,206 @@ safe_copy() {
   cp "$src" "$dst"
 }
 
-echo "Installing Taskmaster for Codex..."
+copy_skill_files() {
+  local skill_dir="$1"
 
-# 1) Copy skill files
-mkdir -p "$SKILL_DIR/hooks"
-mkdir -p "$SKILL_DIR/docs"
+  mkdir -p "$skill_dir/hooks"
+  mkdir -p "$skill_dir/docs"
 
-safe_copy "$SCRIPT_DIR/SKILL.md" "$SKILL_DIR/SKILL.md"
-safe_copy "$SCRIPT_DIR/README.md" "$SKILL_DIR/README.md"
-safe_copy "$SCRIPT_DIR/LICENSE" "$SKILL_DIR/LICENSE"
-safe_copy "$SCRIPT_DIR/docs/SPEC.md" "$SKILL_DIR/docs/SPEC.md"
-safe_copy "$SCRIPT_DIR/install.sh" "$SKILL_DIR/install.sh"
-safe_copy "$SCRIPT_DIR/uninstall.sh" "$SKILL_DIR/uninstall.sh"
+  safe_copy "$SCRIPT_DIR/SKILL.md" "$skill_dir/SKILL.md"
+  safe_copy "$SCRIPT_DIR/README.md" "$skill_dir/README.md"
+  safe_copy "$SCRIPT_DIR/LICENSE" "$skill_dir/LICENSE"
+  safe_copy "$SCRIPT_DIR/docs/SPEC.md" "$skill_dir/docs/SPEC.md"
+  safe_copy "$SCRIPT_DIR/install.sh" "$skill_dir/install.sh"
+  safe_copy "$SCRIPT_DIR/uninstall.sh" "$skill_dir/uninstall.sh"
 
-safe_copy "$SCRIPT_DIR/run-taskmaster-codex.sh" "$SKILL_DIR/run-taskmaster-codex.sh"
-safe_copy "$SCRIPT_DIR/check-completion.sh" "$SKILL_DIR/check-completion.sh"
-safe_copy "$SCRIPT_DIR/hooks/check-completion.sh" "$SKILL_DIR/hooks/check-completion.sh"
-safe_copy "$SCRIPT_DIR/hooks/check-completion-codex.sh" "$SKILL_DIR/hooks/check-completion-codex.sh"
-safe_copy "$SCRIPT_DIR/hooks/inject-continue-codex.sh" "$SKILL_DIR/hooks/inject-continue-codex.sh"
-safe_copy "$SCRIPT_DIR/hooks/run-codex-expect-bridge.exp" "$SKILL_DIR/hooks/run-codex-expect-bridge.exp"
+  safe_copy "$SCRIPT_DIR/run-taskmaster-codex.sh" "$skill_dir/run-taskmaster-codex.sh"
+  safe_copy "$SCRIPT_DIR/check-completion.sh" "$skill_dir/check-completion.sh"
+  safe_copy "$SCRIPT_DIR/hooks/check-completion.sh" "$skill_dir/hooks/check-completion.sh"
+  safe_copy "$SCRIPT_DIR/hooks/check-completion-codex.sh" "$skill_dir/hooks/check-completion-codex.sh"
+  safe_copy "$SCRIPT_DIR/hooks/inject-continue-codex.sh" "$skill_dir/hooks/inject-continue-codex.sh"
+  safe_copy "$SCRIPT_DIR/hooks/run-codex-expect-bridge.exp" "$skill_dir/hooks/run-codex-expect-bridge.exp"
 
-chmod +x "$SKILL_DIR/install.sh"
-chmod +x "$SKILL_DIR/uninstall.sh"
-chmod +x "$SKILL_DIR/run-taskmaster-codex.sh"
-chmod +x "$SKILL_DIR/check-completion.sh"
-chmod +x "$SKILL_DIR/hooks/check-completion.sh"
-chmod +x "$SKILL_DIR/hooks/check-completion-codex.sh"
-chmod +x "$SKILL_DIR/hooks/inject-continue-codex.sh"
-chmod +x "$SKILL_DIR/hooks/run-codex-expect-bridge.exp"
+  chmod +x "$skill_dir/install.sh"
+  chmod +x "$skill_dir/uninstall.sh"
+  chmod +x "$skill_dir/run-taskmaster-codex.sh"
+  chmod +x "$skill_dir/check-completion.sh"
+  chmod +x "$skill_dir/hooks/check-completion.sh"
+  chmod +x "$skill_dir/hooks/check-completion-codex.sh"
+  chmod +x "$skill_dir/hooks/inject-continue-codex.sh"
+  chmod +x "$skill_dir/hooks/run-codex-expect-bridge.exp"
+}
 
-echo "  Installed skill files to $SKILL_DIR"
+codex_detected() {
+  command -v codex >/dev/null 2>&1 || [[ -d "$CODEX_ROOT" ]]
+}
 
-# 2) Create convenience launcher symlink
-mkdir -p "$BIN_DIR"
-ln -sf "$SKILL_DIR/run-taskmaster-codex.sh" "$LAUNCHER_LINK"
-echo "  Linked launcher at $LAUNCHER_LINK"
-ln -sf "$SKILL_DIR/run-taskmaster-codex.sh" "$CODEX_SHIM_LINK"
-echo "  Linked shim at $CODEX_SHIM_LINK"
+claude_detected() {
+  command -v claude >/dev/null 2>&1 || [[ -d "$CLAUDE_ROOT" ]]
+}
+
+ensure_claude_stop_hook() {
+  local settings_path="$1"
+  local hook_command="$2"
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "  Claude: python3 not found; add Stop hook manually -> $hook_command" >&2
+    return 0
+  fi
+
+  python3 - "$settings_path" "$hook_command" <<'PY'
+import json
+import os
+import sys
+
+settings_path = sys.argv[1]
+hook_command = sys.argv[2]
+
+if os.path.exists(settings_path):
+    try:
+        with open(settings_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError:
+        print(f"  Claude: settings is not valid JSON ({settings_path}); add Stop hook manually.", file=sys.stderr)
+        sys.exit(0)
+else:
+    data = {}
+
+if not isinstance(data, dict):
+    print(f"  Claude: settings root is not an object ({settings_path}); add Stop hook manually.", file=sys.stderr)
+    sys.exit(0)
+
+container = None
+if isinstance(data.get("hooks"), dict):
+    container = data["hooks"]
+else:
+    container = data
+
+stop_hooks = container.get("Stop")
+if not isinstance(stop_hooks, list):
+    stop_hooks = []
+    container["Stop"] = stop_hooks
+
+exists = False
+for entry in stop_hooks:
+    if not isinstance(entry, dict):
+        continue
+    hooks = entry.get("hooks")
+    if not isinstance(hooks, list):
+        continue
+    for hook in hooks:
+        if not isinstance(hook, dict):
+            continue
+        if hook.get("type") == "command" and hook.get("command") == hook_command:
+            exists = True
+            break
+    if exists:
+        break
+
+if not exists:
+    stop_hooks.append(
+        {
+            "matcher": "*",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": hook_command,
+                }
+            ],
+        }
+    )
+
+os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+with open(settings_path, "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+
+if exists:
+    print("  Claude: Stop hook already configured")
+else:
+    print("  Claude: added Stop hook to settings")
+PY
+}
+
+install_codex() {
+  copy_skill_files "$CODEX_SKILL_DIR"
+
+  mkdir -p "$CODEX_BIN_DIR"
+  ln -sf "$CODEX_SKILL_DIR/run-taskmaster-codex.sh" "$CODEX_LAUNCHER_LINK"
+  ln -sf "$CODEX_SKILL_DIR/run-taskmaster-codex.sh" "$CODEX_SHIM_LINK"
+
+  echo "  Codex: installed skill files to $CODEX_SKILL_DIR"
+  echo "  Codex: linked launcher at $CODEX_LAUNCHER_LINK"
+  echo "  Codex: linked shim at $CODEX_SHIM_LINK"
+}
+
+install_claude() {
+  copy_skill_files "$CLAUDE_SKILL_DIR"
+
+  mkdir -p "$CLAUDE_HOOKS_DIR"
+  ln -sf "$CLAUDE_SKILL_DIR/check-completion.sh" "$CLAUDE_HOOK_LINK"
+  chmod +x "$CLAUDE_HOOK_LINK"
+
+  echo "  Claude: installed skill files to $CLAUDE_SKILL_DIR"
+  echo "  Claude: linked Stop hook at $CLAUDE_HOOK_LINK"
+  ensure_claude_stop_hook "$CLAUDE_SETTINGS_PATH" "$CLAUDE_HOOK_COMMAND"
+}
+
+INSTALL_TARGET="${TASKMASTER_INSTALL_TARGET:-auto}"
+INSTALL_CODEX=0
+INSTALL_CLAUDE=0
+
+case "$INSTALL_TARGET" in
+  auto)
+    if codex_detected; then
+      INSTALL_CODEX=1
+    fi
+    if claude_detected; then
+      INSTALL_CLAUDE=1
+    fi
+    if [[ "$INSTALL_CODEX" -eq 0 && "$INSTALL_CLAUDE" -eq 0 ]]; then
+      INSTALL_CODEX=1
+      INSTALL_CLAUDE=1
+      echo "No Codex/Claude install detected; defaulting to both targets."
+    fi
+    ;;
+  codex)
+    INSTALL_CODEX=1
+    ;;
+  claude)
+    INSTALL_CLAUDE=1
+    ;;
+  both)
+    INSTALL_CODEX=1
+    INSTALL_CLAUDE=1
+    ;;
+  *)
+    echo "Invalid TASKMASTER_INSTALL_TARGET='$INSTALL_TARGET' (expected: auto|codex|claude|both)" >&2
+    exit 4
+    ;;
+esac
+
+echo "Installing Taskmaster..."
+
+if [[ "$INSTALL_CODEX" -eq 1 ]]; then
+  install_codex
+fi
+
+if [[ "$INSTALL_CLAUDE" -eq 1 ]]; then
+  install_claude
+fi
 
 echo ""
 echo "Done."
-echo ""
-echo "Usage:"
-echo "  codex-taskmaster [codex args]"
-echo ""
-echo "If '$BIN_DIR' is not on PATH, add this to your shell profile:"
-echo "  export PATH=\"\$HOME/.codex/bin:\$PATH\""
+
+if [[ "$INSTALL_CODEX" -eq 1 ]]; then
+  echo ""
+  echo "Codex usage:"
+  echo "  codex [codex args]"
+fi
+
+if [[ "$INSTALL_CLAUDE" -eq 1 ]]; then
+  echo ""
+  echo "Claude usage:"
+  echo "  Claude Stop hook is configured at $CLAUDE_HOOK_COMMAND"
+fi

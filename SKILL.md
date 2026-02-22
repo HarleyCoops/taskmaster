@@ -41,7 +41,6 @@ This gives external automation a deterministic completion marker to parse.
 
 - `TASKMASTER_MAX` (default `0`): max warning count before suppression in the
   monitor. `0` means unlimited warnings.
-- `TASKMASTER_LOG_PATH`: optional fixed session log path (debugging only).
 
 Fixed behavior (not configurable):
 - Done token prefix: `TASKMASTER_DONE`

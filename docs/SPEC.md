@@ -106,7 +106,6 @@ Bridge behavior:
 
 Configurable:
 - `TASKMASTER_MAX` (default `0`): monitor warning cap
-- `TASKMASTER_LOG_PATH`: optional fixed log path
 
 Fixed (not configurable):
 - done token prefix: `TASKMASTER_DONE`
