@@ -5,6 +5,23 @@ Taskmaster is a completion guard for coding agents.
 It addresses a common failure mode: the agent makes partial progress, writes a
 summary, and stops before the user goal is actually finished.
 
+## Philosophy
+
+Taskmaster is built around one idea: progress is not completion.
+
+- Evidence over narrative:
+  The agent should not be allowed to stop based on a convincing summary alone.
+  Completion must be explicit and machine-checkable.
+- Same-session recovery:
+  When a turn is incomplete, the right move is to continue in the same running
+  session, not restart from scratch.
+- Goal re-anchoring:
+  Compliance prompts force the model back to the user’s actual request, not its
+  own local notion of “good enough”.
+- Automation-safe signaling:
+  A deterministic done token makes completion parseable for wrappers, monitors,
+  and CI-style flows.
+
 ## Core Contract
 
 A run is complete only when the assistant emits:
@@ -15,6 +32,24 @@ TASKMASTER_DONE::<session_id>
 
 If that token is missing at stop time, Taskmaster blocks stop and pushes the
 session to continue.
+
+### Enforcement Prompt
+
+Taskmaster enforces the contract with corrective compliance prompts.
+
+For Codex, the prompt is a direct continuation instruction: it tells the agent
+that stop was denied because the done token is missing, re-anchors execution on
+the latest user request, and requires implementation plus verification before
+any final response. It also reminds the agent that the done token is only valid
+when work is genuinely complete.
+
+For Claude, the Stop hook returns a structured block reason that functions as a
+compliance checklist. It requires the agent to re-check user requirements,
+unfinished tasks, verification steps, errors, and loose ends before stop is
+allowed.
+
+See `hooks/inject-continue-codex.sh` and `check-completion.sh` for current
+prompt text.
 
 ## How It Works
 
