@@ -1,114 +1,126 @@
 # Taskmaster
 ## Product & Technical Specification
 
-**Version**: 2.1.0  
-**Scope**: `taskmaster/hooks/check-completion.sh`, `taskmaster/SKILL.md`
+**Version**: 4.1.0  
+**Scope**:
+- `taskmaster/hooks/check-completion-codex.sh`
+- `taskmaster/hooks/inject-continue-codex-tmux.sh`
+- `taskmaster/hooks/run-codex-expect-bridge.exp`
+- `taskmaster/run-taskmaster-codex.sh`
+- `taskmaster/SKILL.md`
 
 ## 1. Goal
 
 Prevent premature agent stopping and provide a deterministic, machine-parseable
 completion signal.
 
-Taskmaster now blocks every stop attempt until the agent emits an explicit
-done token in the transcript.
+Codex TUI currently has no arbitrary writable stop hook surface
+([openai/codex#2109](https://github.com/openai/codex/issues/2109)). Taskmaster
+uses session-log polling to enforce the same completion contract externally.
 
 ## 2. Completion Contract
 
-A stop is allowed only when the transcript contains:
+A run is considered complete only when assistant output includes:
 
 ```text
 TASKMASTER_DONE::<session_id>
 ```
 
-- `<session_id>` is the hook runtime session id.
+- `<session_id>` comes from `session_configured` in TUI session logs.
 - The line must be emitted by the agent only when work is truly complete.
 - External systems can parse this line as the authoritative completion marker.
 
-## 3. Hook Behavior
+## 3. Architecture
 
-### 3.1 Stop Decision Logic
+### 3.1 Codex Session Logging
 
-On each stop event:
+Taskmaster requires:
 
-1. Read stdin JSON from hook runtime.
-2. Skip very short transcripts (`< 20` lines) to avoid subagent false fires.
-3. Build session-scoped state under `${TMPDIR:-/tmp}/taskmaster/<session_id>`.
-4. Scan transcript tail for done token `TASKMASTER_DONE::<session_id>`.
-5. If token exists: allow stop (`exit 0`) and clear counter file.
-6. If token missing: increment counter and block stop with a checklist prompt.
-7. Optional safety cap: if `TASKMASTER_MAX > 0` and counter reaches cap,
-   allow stop and clear counter file.
+- `CODEX_TUI_RECORD_SESSION=1`
+- `CODEX_TUI_SESSION_LOG_PATH=/path/to/session.jsonl`
 
-### 3.2 Prompt Injection
+Log format source:
+- `codex-rs/tui/src/session_log.rs` (`kind`, `dir`, `payload` envelope)
+- `codex-rs/protocol/src/protocol.rs` (`task_complete`, `session_configured`)
 
-When blocking, Taskmaster injects:
+### 3.2 Monitor Script (`hooks/check-completion-codex.sh`)
 
-- `TASKMASTER (N)` or `TASKMASTER (N/MAX)` label.
-- A completion checklist (requests, plan, errors, loose ends, blockers).
-- The exact done line to emit when truly complete.
+The monitor is read-only and parses JSONL events.
 
-### 3.3 Error Signal Hinting
+Decision flow:
 
-Taskmaster inspects recent transcript lines for `"is_error": true` and adjusts
-preamble text to explicitly call out unresolved errors.
+1. Capture `session_id` from `kind=codex_event` + `msg.type=session_configured`.
+2. On each `task_complete`, inspect `last_agent_message`.
+3. If done token is missing, emit a warning.
+4. On `session_end`, exit:
+   - `0` when token was found
+   - `2` when token missing
+   - `3` when no `task_complete` events were observed
+
+### 3.3 Continuation Wrapper (`run-taskmaster-codex.sh`)
+
+Wrapper behavior:
+
+1. Starts Codex with session logging enabled.
+2. Selects same-process transport:
+   - tmux pane injector, or
+   - expect PTY bridge with file-queue injector.
+3. If completion token is missing and auto-resume is enabled:
+   - injects a new user message into the same pane/process
+4. Continues until completion token is emitted or injection cap is reached.
+
+### 3.4 Same-Process Injector (`hooks/inject-continue-codex-tmux.sh`)
+
+Injector behavior:
+
+1. Follows the active session log for `task_complete`/`turn_complete`.
+2. For each completed turn without done token:
+   - builds continuation prompt
+   - injects prompt into target pane with `tmux paste-buffer` + `send-keys Enter`
+3. Uses turn-id/signature dedupe to avoid duplicate injection on re-read.
+
+### 3.5 Expect PTY Bridge (`hooks/run-codex-expect-bridge.exp`)
+
+Bridge behavior:
+
+1. Spawns Codex inside a managed PTY.
+2. Polls queue files emitted by injector (`inject.*.txt`).
+3. Sends queued prompt text into the same running Codex PTY using bracketed
+   paste framing by default, then submits with Enter after a short delay.
+4. Supports env-tunable fallback to raw byte paste mode.
 
 ## 4. Runtime Interfaces
 
-### 4.1 Input (stdin JSON)
+### 4.1 Monitor Inputs
 
-- `session_id` (string)
-- `transcript_path` (string)
-- `stop_hook_active` (ignored)
+- `--log <path>` or `CODEX_TUI_SESSION_LOG_PATH`
+- `--follow` (optional)
+- `TASKMASTER_DONE_PREFIX`
+- `TASKMASTER_MAX`
+- `TASKMASTER_POLL_INTERVAL`
 
-### 4.2 Output
+### 4.2 Monitor Exit Codes
 
-- Allow stop: exit code `0`, no stdout
-- Block stop: stdout JSON
-
-```json
-{ "decision": "block", "reason": "..." }
-```
+- `0`: token found
+- `2`: incomplete (token missing)
+- `3`: no `task_complete` observed
+- `4`: invalid usage / missing prerequisites
 
 ## 5. Configuration
 
-- `TASKMASTER_MAX` (default `0`)
-  - `0`: infinite blocking until done token appears
-  - `>0`: max block count before forced allow
 - `TASKMASTER_DONE_PREFIX` (default `TASKMASTER_DONE`)
-  - Done token format becomes `<prefix>::<session_id>`
+- `TASKMASTER_AUTORESUME` (default `1`)
+- `TASKMASTER_AUTORESUME_MAX` (default `0` = unlimited)
+- `TASKMASTER_MAX` (warning cap for monitor)
+- `TASKMASTER_POLL_INTERVAL` (default `0.5` seconds)
+- `TASKMASTER_MODE` (`auto`, `tmux`, `expect`)
+- `TASKMASTER_TMUX_PANE` (optional explicit target pane)
+- `TASKMASTER_LOG_PATH` (optional fixed log path)
+- `TASKMASTER_EXPECT_PASTE_MODE` (`bracketed` or `plain`)
+- `TASKMASTER_EXPECT_SUBMIT_DELAY_MS` (delay before Enter in expect mode)
 
-## 6. State
+## 6. Operational Notes
 
-- Directory: `${TMPDIR:-/tmp}/taskmaster`
-- File: `${TMPDIR:-/tmp}/taskmaster/<session_id>`
-- Content: integer fire count
-- Lifecycle: created on first block, removed when stop is allowed
-
-## 7. Registration
-
-Add to `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/skills/taskmaster/hooks/check-completion.sh",
-            "timeout": 10
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-## 8. Operational Notes
-
-- Default behavior is strict: no token, no stop.
-- For emergency escape hatch in automation, set `TASKMASTER_MAX` to a positive
-  value.
-- Parse done signals using exact-match line parsing for reliability.
+- This is not a native stop hook; it is external control-plane logic.
+- In tmux/expect modes, injection is same-process (new user message into current process).
+- For strict CI-style checks, run monitor in analyze mode and require exit `0`.

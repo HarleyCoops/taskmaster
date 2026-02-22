@@ -1,80 +1,71 @@
 #!/usr/bin/env bash
 #
-# Taskmaster installer
+# Taskmaster installer for Codex
 #
-# Installs the skill + stop hook and registers it in ~/.claude/settings.json.
+# Installs Taskmaster scripts into ~/.codex/skills/taskmaster and creates
+# a convenience launcher at ~/.codex/bin/codex-taskmaster.
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SKILL_DIR="$HOME/.claude/skills/taskmaster"
-SETTINGS="$HOME/.claude/settings.json"
+SKILL_DIR="$HOME/.codex/skills/taskmaster"
+BIN_DIR="$HOME/.codex/bin"
+LAUNCHER_LINK="$BIN_DIR/codex-taskmaster"
+CODEX_SHIM_LINK="$BIN_DIR/codex"
 
-echo "Installing Taskmaster..."
+safe_copy() {
+  local src="$1"
+  local dst="$2"
 
-# 1. Copy skill files
-mkdir -p "$SKILL_DIR/hooks"
-cp "$SCRIPT_DIR/SKILL.md" "$SKILL_DIR/SKILL.md"
-cp "$SCRIPT_DIR/check-completion.sh" "$SKILL_DIR/hooks/check-completion.sh"
-chmod +x "$SKILL_DIR/hooks/check-completion.sh"
-echo "  Skill installed to $SKILL_DIR"
-
-# 2. Register the stop hook in settings.json
-HOOK_CMD="\$HOME/.claude/skills/taskmaster/hooks/check-completion.sh"
-
-if [ ! -f "$SETTINGS" ]; then
-  # No settings file — create one with just the hook
-  cat > "$SETTINGS" <<EOF
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOOK_CMD",
-            "timeout": 10
-          }
-        ]
-      }
-    ]
-  }
-}
-EOF
-  echo "  Created $SETTINGS with stop hook"
-elif ! grep -q 'check-completion.sh' "$SETTINGS" 2>/dev/null; then
-  # Settings exists but hook not registered — merge it in
-  if command -v jq &>/dev/null; then
-    HOOK_ENTRY=$(cat <<EOF
-[{"hooks":[{"type":"command","command":"$HOOK_CMD","timeout":10}]}]
-EOF
-)
-    TMP=$(mktemp)
-    jq --argjson hook "$HOOK_ENTRY" '
-      .hooks //= {} |
-      .hooks.Stop //= [] |
-      .hooks.Stop += $hook
-    ' "$SETTINGS" > "$TMP" && mv "$TMP" "$SETTINGS"
-    echo "  Added stop hook to $SETTINGS"
-  else
-    echo ""
-    echo "  jq not found — could not auto-register the hook."
-    echo "  Add this manually to $SETTINGS:"
-    echo ""
-    echo '  "hooks": {'
-    echo '    "Stop": [{'
-    echo '      "hooks": [{'
-    echo '        "type": "command",'
-    echo "        \"command\": \"$HOOK_CMD\","
-    echo '        "timeout": 10'
-    echo '      }]'
-    echo '    }]'
-    echo '  }'
-    echo ""
+  if [[ "$(cd "$(dirname "$src")" && pwd)/$(basename "$src")" == "$(cd "$(dirname "$dst")" && pwd)/$(basename "$dst")" ]]; then
+    return 0
   fi
-else
-  echo "  Stop hook already registered in $SETTINGS"
-fi
+  cp "$src" "$dst"
+}
+
+echo "Installing Taskmaster for Codex..."
+
+# 1) Copy skill files
+mkdir -p "$SKILL_DIR/hooks"
+mkdir -p "$SKILL_DIR/docs"
+
+safe_copy "$SCRIPT_DIR/SKILL.md" "$SKILL_DIR/SKILL.md"
+safe_copy "$SCRIPT_DIR/README.md" "$SKILL_DIR/README.md"
+safe_copy "$SCRIPT_DIR/LICENSE" "$SKILL_DIR/LICENSE"
+safe_copy "$SCRIPT_DIR/docs/SPEC.md" "$SKILL_DIR/docs/SPEC.md"
+safe_copy "$SCRIPT_DIR/install.sh" "$SKILL_DIR/install.sh"
+safe_copy "$SCRIPT_DIR/uninstall.sh" "$SKILL_DIR/uninstall.sh"
+
+safe_copy "$SCRIPT_DIR/run-taskmaster-codex.sh" "$SKILL_DIR/run-taskmaster-codex.sh"
+safe_copy "$SCRIPT_DIR/check-completion.sh" "$SKILL_DIR/check-completion.sh"
+safe_copy "$SCRIPT_DIR/hooks/check-completion.sh" "$SKILL_DIR/hooks/check-completion.sh"
+safe_copy "$SCRIPT_DIR/hooks/check-completion-codex.sh" "$SKILL_DIR/hooks/check-completion-codex.sh"
+safe_copy "$SCRIPT_DIR/hooks/inject-continue-codex-tmux.sh" "$SKILL_DIR/hooks/inject-continue-codex-tmux.sh"
+safe_copy "$SCRIPT_DIR/hooks/run-codex-expect-bridge.exp" "$SKILL_DIR/hooks/run-codex-expect-bridge.exp"
+
+chmod +x "$SKILL_DIR/install.sh"
+chmod +x "$SKILL_DIR/uninstall.sh"
+chmod +x "$SKILL_DIR/run-taskmaster-codex.sh"
+chmod +x "$SKILL_DIR/check-completion.sh"
+chmod +x "$SKILL_DIR/hooks/check-completion.sh"
+chmod +x "$SKILL_DIR/hooks/check-completion-codex.sh"
+chmod +x "$SKILL_DIR/hooks/inject-continue-codex-tmux.sh"
+chmod +x "$SKILL_DIR/hooks/run-codex-expect-bridge.exp"
+
+echo "  Installed skill files to $SKILL_DIR"
+
+# 2) Create convenience launcher symlink
+mkdir -p "$BIN_DIR"
+ln -sf "$SKILL_DIR/run-taskmaster-codex.sh" "$LAUNCHER_LINK"
+echo "  Linked launcher at $LAUNCHER_LINK"
+ln -sf "$SKILL_DIR/run-taskmaster-codex.sh" "$CODEX_SHIM_LINK"
+echo "  Linked shim at $CODEX_SHIM_LINK"
 
 echo ""
-echo "Done. Restart your coding agent to activate Taskmaster."
+echo "Done."
+echo ""
+echo "Usage:"
+echo "  codex-taskmaster [codex args]"
+echo ""
+echo "If '$BIN_DIR' is not on PATH, add this to your shell profile:"
+echo "  export PATH=\"\$HOME/.codex/bin:\$PATH\""

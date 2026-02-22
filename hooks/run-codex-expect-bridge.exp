@@ -1,0 +1,91 @@
+#!/usr/bin/env expect
+#
+# Run Codex in a managed PTY and inject queued prompts from files.
+#
+# Usage:
+#   run-codex-expect-bridge.exp <queue_dir> <command> [args...]
+#
+set timeout -1
+
+if {$argc < 2} {
+  puts stderr {Usage: run-codex-expect-bridge.exp <queue_dir> <command> [args...]}
+  exit 4
+}
+
+set queue_dir [lindex $argv 0]
+set cmd [lrange $argv 1 end]
+
+if {![file isdirectory $queue_dir]} {
+  file mkdir $queue_dir
+}
+
+proc env_or_default {name default_value} {
+  if {[info exists ::env($name)] && [string length $::env($name)] > 0} {
+    return $::env($name)
+  }
+  return $default_value
+}
+
+proc send_injected_payload {payload} {
+  set paste_mode [string tolower [env_or_default "TASKMASTER_EXPECT_PASTE_MODE" "bracketed"]]
+  set submit_delay_ms [env_or_default "TASKMASTER_EXPECT_SUBMIT_DELAY_MS" "180"]
+
+  if {![string is integer -strict $submit_delay_ms] || $submit_delay_ms < 0} {
+    set submit_delay_ms 180
+  }
+
+  if {[string length $payload] > 0} {
+    if {$paste_mode eq "bracketed"} {
+      # Mirror terminal bracketed-paste framing so Codex treats this as paste,
+      # not as a rapid key burst where Enter can be interpreted as newline.
+      send -- "\033\[200~"
+      send -- $payload
+      send -- "\033\[201~"
+    } else {
+      send -- $payload
+    }
+  }
+
+  if {$submit_delay_ms > 0} {
+    after $submit_delay_ms
+  }
+  send -- "\r"
+}
+
+proc inject_pending {queue_dir} {
+  set files [lsort [glob -nocomplain -types f -- "$queue_dir/inject.*.txt"]]
+
+  foreach f $files {
+    if {[catch {open $f r} fh]} {
+      continue
+    }
+
+    fconfigure $fh -encoding utf-8 -translation lf
+    set payload [read $fh]
+    close $fh
+
+    file delete -force -- $f
+
+    send_injected_payload $payload
+  }
+}
+
+proc periodic_inject {queue_dir} {
+  inject_pending $queue_dir
+  after 200 [list periodic_inject $queue_dir]
+}
+
+spawn -noecho {*}$cmd
+log_user 1
+
+periodic_inject $queue_dir
+interact
+
+set ws [wait]
+if {[llength $ws] >= 4} {
+  set status [lindex $ws 3]
+} else {
+  set status 0
+}
+
+exit $status

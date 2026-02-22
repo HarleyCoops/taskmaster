@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 #
-# Taskmaster uninstaller
+# Taskmaster uninstaller for Codex
 #
-# Removes the skill directory and deregisters the stop hook from settings.
+# Removes the Taskmaster skill directory and launcher symlink.
 #
 set -euo pipefail
 
-SKILL_DIR="$HOME/.claude/skills/taskmaster"
-SETTINGS="$HOME/.claude/settings.json"
+SKILL_DIR="$HOME/.codex/skills/taskmaster"
+LAUNCHER_LINK="$HOME/.codex/bin/codex-taskmaster"
+CODEX_SHIM_LINK="$HOME/.codex/bin/codex"
 
-echo "Uninstalling Taskmaster..."
+echo "Uninstalling Taskmaster for Codex..."
 
-# 1. Remove skill directory
+# 1) Remove skill directory
 if [ -d "$SKILL_DIR" ]; then
   rm -rf "$SKILL_DIR"
   echo "  Removed $SKILL_DIR"
@@ -19,23 +20,19 @@ else
   echo "  Skill directory not found (already removed)"
 fi
 
-# 2. Remove hook from settings.json
-if [ -f "$SETTINGS" ] && command -v jq &>/dev/null; then
-  TMP=$(mktemp)
-  jq '
-    if .hooks and .hooks.Stop then
-      .hooks.Stop |= map(
-        .hooks |= map(select(.command | test("taskmaster") | not))
-        | select(.hooks | length > 0)
-      )
-      | if (.hooks.Stop | length) == 0 then del(.hooks.Stop) else . end
-      | if (.hooks | length) == 0 then del(.hooks) else . end
-    else . end
-  ' "$SETTINGS" > "$TMP" && mv "$TMP" "$SETTINGS"
-  echo "  Removed stop hook from $SETTINGS"
+# 2) Remove launcher symlink
+if [ -L "$LAUNCHER_LINK" ] || [ -f "$LAUNCHER_LINK" ]; then
+  rm -f "$LAUNCHER_LINK"
+  echo "  Removed $LAUNCHER_LINK"
 else
-  echo "  Could not auto-remove hook from settings (jq not found or no settings file)."
-  echo "  Manually remove the Taskmaster Stop hook entry from $SETTINGS"
+  echo "  Launcher not found (already removed)"
+fi
+
+if [ -L "$CODEX_SHIM_LINK" ] || [ -f "$CODEX_SHIM_LINK" ]; then
+  rm -f "$CODEX_SHIM_LINK"
+  echo "  Removed $CODEX_SHIM_LINK"
+else
+  echo "  Shim not found (already removed)"
 fi
 
 echo ""

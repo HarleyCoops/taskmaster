@@ -1,82 +1,122 @@
 # Taskmaster
 
-A stop hook for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that prevents premature stopping and emits a deterministic, parseable completion signal.
+A Codex session-log monitor + same-process continuation wrapper that prevents
+premature stopping and emits a deterministic, parseable completion signal.
+
+Codex TUI currently lacks arbitrary writable event hooks
+([openai/codex#2109](https://github.com/openai/codex/issues/2109)). Taskmaster
+implements equivalent behavior externally by reading
+`CODEX_TUI_SESSION_LOG_PATH` and injecting continuation prompts into the same
+running Codex process using either tmux transport or expect-PTY transport.
 
 ## Behavior
 
-Taskmaster blocks every stop attempt until the transcript contains an explicit done token:
+Taskmaster enforces a session-specific done token:
 
 ```text
 TASKMASTER_DONE::<session_id>
 ```
 
-When the token is missing, Taskmaster returns a blocking hook response with a completion checklist and the exact signal line the agent must emit only when truly done.
+When missing at `task_complete`, Taskmaster marks the turn incomplete and can
+automatically inject a continuation user message to keep execution going.
+
+Mode selection:
+- `TASKMASTER_MODE=auto` (default): prefer tmux if a pane is detected, else
+  use expect PTY transport.
+- `TASKMASTER_MODE=tmux`: force tmux transport.
+- `TASKMASTER_MODE=expect`: force expect PTY transport.
 
 ## Install
 
 ```bash
-git clone https://github.com/blader/taskmaster.git
-cd taskmaster
-bash install.sh
+bash ~/.codex/skills/taskmaster/install.sh
 ```
 
 This will:
-- Copy skill files to `~/.claude/skills/taskmaster/`
-- Install the hook script at `~/.claude/skills/taskmaster/hooks/check-completion.sh`
-- Register the stop hook in `~/.claude/settings.json`
+- Ensure files are present under `~/.codex/skills/taskmaster/`
+- Create launcher symlink `~/.codex/bin/codex-taskmaster`
 
-Restart your coding agent after installing.
+## Run
 
-## Manual Install
+```bash
+codex-taskmaster [codex args]
+```
 
-1. Copy `SKILL.md` to `~/.claude/skills/taskmaster/SKILL.md`
-2. Copy `check-completion.sh` to `~/.claude/skills/taskmaster/hooks/check-completion.sh`
-3. Make it executable: `chmod +x ~/.claude/skills/taskmaster/hooks/check-completion.sh`
-4. Add this hook entry to `~/.claude/settings.json`:
+Examples:
 
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/skills/taskmaster/hooks/check-completion.sh",
-            "timeout": 10
-          }
-        ]
-      }
-    ]
-  }
-}
+```bash
+# Run with your normal codex defaults
+codex-taskmaster
+
+# Run with a prompt
+codex-taskmaster "profile and fix import memory usage"
+
+# Pass codex flags
+codex-taskmaster -- --search
+```
+
+## Direct Monitor Usage
+
+If you only want read-only monitoring:
+
+```bash
+CODEX_TUI_RECORD_SESSION=1 \
+CODEX_TUI_SESSION_LOG_PATH=/tmp/codex-session.jsonl \
+codex
+
+bash ~/.codex/skills/taskmaster/hooks/check-completion-codex.sh \
+  --follow --log /tmp/codex-session.jsonl
 ```
 
 ## Configuration
 
-- `TASKMASTER_MAX` (default `0`)
-  - `0`: infinite blocking until done token appears
-  - `>0`: max block count before forced allow
 - `TASKMASTER_DONE_PREFIX` (default `TASKMASTER_DONE`)
-  - done token becomes `<prefix>::<session_id>`
+  - token format: `<prefix>::<session_id>`
+- `TASKMASTER_AUTORESUME` (default `1`)
+  - `1`: enable auto-injection when token is missing
+  - `0`: disable auto-injection
+- `TASKMASTER_AUTORESUME_MAX` (default `0`)
+  - `0`: unlimited auto-injections
+  - `>0`: max injections before stop
+- `TASKMASTER_MAX` (default `0`)
+  - monitor warning cap (`0` = unlimited warnings)
+- `TASKMASTER_POLL_INTERVAL` (default `0.5`)
+  - monitor poll interval (seconds)
+- `TASKMASTER_MODE` (default `auto`)
+  - `auto`: tmux when available, else expect
+  - `tmux`: force tmux transport
+  - `expect`: force expect PTY transport
+- `TASKMASTER_TMUX_PANE`
+  - optional explicit tmux pane id override (example: `%7`)
+- `TASKMASTER_LOG_PATH`
+  - optional fixed session log path (debugging only)
+- `TASKMASTER_EXPECT_PASTE_MODE` (default `bracketed`)
+  - `bracketed`: send injected text as bracketed paste, then submit
+  - `plain`: send raw text bytes, then submit
+- `TASKMASTER_EXPECT_SUBMIT_DELAY_MS` (default `180`)
+  - delay before submit key in expect mode (helps avoid paste-burst Enter suppression)
 
 ## Uninstall
 
 ```bash
-cd taskmaster
-bash uninstall.sh
+bash ~/.codex/skills/taskmaster/uninstall.sh
 ```
 
 ## Notes
 
-- The done token is session-specific, so external automation can parse completion deterministically.
+- Codex logging needs both variables:
+  - `CODEX_TUI_RECORD_SESSION=1`
+  - `CODEX_TUI_SESSION_LOG_PATH=<path>`
+- The done token is session-specific, so automation can parse completion deterministically.
 - For details, see `docs/SPEC.md`.
 
 ## Requirements
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with hooks support
-- `jq` (for installer and hook)
+- Codex CLI
+- `jq`
 - `bash`
+- `tmux` (for tmux transport)
+- `expect` (for non-tmux same-process transport)
 
 ## License
 

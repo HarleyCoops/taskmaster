@@ -1,29 +1,31 @@
 ---
 name: taskmaster
 description: |
-  Stop hook that keeps the agent working until all plans and user requests are
-  100% complete. Fires on every stop attempt until the agent emits an explicit
-  parseable done signal in its final response. Provides deterministic machine
-  detection for true completion.
+  Codex session-log monitor plus same-process injector (tmux or expect PTY)
+  that keeps work moving until an explicit parseable done signal is emitted.
 author: blader
-version: 2.1.0
+version: 4.1.0
 ---
 
 # Taskmaster
 
-A stop hook that prevents the agent from stopping prematurely. When the agent
-is about to stop, this hook checks for a session-specific done token in the
-transcript. If the token is missing, it blocks the stop and forces another
-completion review cycle.
+Taskmaster for Codex uses session-log polling plus automatic continuation.
+Codex TUI does not currently expose arbitrary writable stop hooks, so this
+skill implements the same completion contract externally.
 
 ## How It Works
 
-1. **Agent tries to stop** — the stop hook fires every time.
-2. **Hook scans transcript** for a parseable token:
+1. **Run Codex via wrapper**: `run-taskmaster-codex.sh` sets
+   `CODEX_TUI_RECORD_SESSION=1` and a log path.
+2. **Monitor parses log events** and checks completion on each
+   `task_complete` event.
+3. **Parseable token contract**:
    `TASKMASTER_DONE::<session_id>`
-3. **Token missing** — hook blocks stop and injects a checklist plus the exact
-   token to emit when truly done.
-4. **Token present** — hook allows stop and clears session counter state.
+4. **Token missing**:
+   - inject follow-up user message into the same running process via:
+     - `tmux send-keys` transport, or
+     - `expect` PTY bridge transport outside tmux
+5. **Token present**: no further injection.
 
 ## Parseable Done Signal
 
@@ -38,34 +40,32 @@ This gives external automation a deterministic completion marker to parse.
 
 ## Configuration
 
-- `TASKMASTER_MAX` (default `0`): Max number of blocked stop attempts before
-  allowing stop. `0` means infinite (keep firing).
+- `TASKMASTER_MAX` (default `0`): max warning count before suppression in the
+  monitor. `0` means unlimited warnings.
 - `TASKMASTER_DONE_PREFIX` (default `TASKMASTER_DONE`): Prefix used for the
   done token.
+- `TASKMASTER_AUTORESUME` (default `1`): enable automatic continuation
+  injection when completion token is missing.
+- `TASKMASTER_AUTORESUME_MAX` (default `0`): max automatic injections.
+  `0` means unlimited.
+- `TASKMASTER_POLL_INTERVAL` (default `0.5`): monitor polling interval.
+- `TASKMASTER_MODE` (default `auto`): `auto`, `tmux`, or `expect`.
+- `TASKMASTER_TMUX_PANE`: optional explicit tmux pane target.
+- `TASKMASTER_LOG_PATH`: optional fixed log path (debugging only).
+- `TASKMASTER_EXPECT_PASTE_MODE` (default `bracketed`): expect transport
+  payload mode (`bracketed` or `plain`).
+- `TASKMASTER_EXPECT_SUBMIT_DELAY_MS` (default `180`): expect transport
+  delay before Enter submit.
 
 ## Setup
 
-The hook must be registered in `~/.claude/settings.json`:
+Install and run:
 
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/skills/taskmaster/hooks/check-completion.sh",
-            "timeout": 10
-          }
-        ]
-      }
-    ]
-  }
-}
+```bash
+bash ~/.codex/skills/taskmaster/install.sh
+codex-taskmaster
 ```
 
 ## Disabling
 
-To temporarily disable, remove or comment out the Stop hook in
-`~/.claude/settings.json`.
+Set `TASKMASTER_AUTORESUME=0` or run plain `codex` directly.
