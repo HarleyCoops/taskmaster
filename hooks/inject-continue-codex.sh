@@ -12,6 +12,10 @@
 #
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/../taskmaster-compliance-prompt.sh"
+
 usage() {
   cat <<'USAGE'
 Usage:
@@ -91,6 +95,7 @@ LAST_HANDLED_SIG=""
 build_reprompt() {
   local sid="$1"
   local token
+  local shared_prompt
 
   if [[ -n "$sid" && "$sid" != "null" ]]; then
     token="${DONE_PREFIX}::${sid}"
@@ -98,15 +103,12 @@ build_reprompt() {
     token="${DONE_PREFIX}::<session_id>"
   fi
 
+  shared_prompt="$(build_taskmaster_compliance_prompt "$token")"
+
   cat <<RE-PROMPT
-TASKMASTER: your previous turn ended without the required completion token.
+TASKMASTER: Stop is blocked until completion is explicitly confirmed.
 
-Re-read the user's latest request and continue executing work immediately.
-Do not stop after analysis. Implement, verify, and then report results.
-
-When and only when everything is genuinely complete, include this exact line
-on its own line in your final response:
-$token
+${shared_prompt}
 RE-PROMPT
 }
 

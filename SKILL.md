@@ -23,7 +23,7 @@ skill implements the same completion contract externally.
    `TASKMASTER_DONE::<session_id>`
 4. **Token missing**:
    - inject follow-up user message into the same running process via
-     expect PTY bridge transport.
+     expect PTY bridge transport, using the shared compliance prompt.
 5. **Token present**: no further injection.
 
 ## Parseable Done Signal

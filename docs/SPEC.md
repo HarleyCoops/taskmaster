@@ -4,6 +4,7 @@
 **Version**: 4.2.0  
 **Scope**:
 - `taskmaster/check-completion.sh`
+- `taskmaster/taskmaster-compliance-prompt.sh`
 - `taskmaster/hooks/inject-continue-codex.sh`
 - `taskmaster/hooks/run-codex-expect-bridge.exp`
 - `taskmaster/run-taskmaster-codex.sh`
@@ -17,6 +18,9 @@ completion signal.
 
 Taskmaster enforces explicit completion through a done-token contract and
 continuation/hook feedback when that contract is not satisfied.
+
+Both Codex and Claude paths consume the same shared compliance prompt text from
+`taskmaster-compliance-prompt.sh`.
 
 ## 2. Completion Contract
 
