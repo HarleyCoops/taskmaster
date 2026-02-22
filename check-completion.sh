@@ -17,6 +17,8 @@ source "$SCRIPT_DIR/taskmaster-compliance-prompt.sh"
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id')
 TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path')
+# Expand leading ~ to $HOME (tilde not expanded inside quotes by bash)
+TRANSCRIPT="${TRANSCRIPT/#\~/$HOME}"
 if [ -z "$SESSION_ID" ] || [ "$SESSION_ID" = "null" ]; then
   SESSION_ID="unknown-session"
 fi
