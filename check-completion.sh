@@ -47,12 +47,21 @@ DONE_SIGNAL="TASKMASTER_DONE::${SESSION_ID}"
 HAS_DONE_SIGNAL=false
 HAS_RECENT_ERRORS=false
 
-if [ -f "$TRANSCRIPT" ]; then
+# Check last_assistant_message first (available immediately, unlike transcript)
+LAST_MSG=$(echo "$INPUT" | jq -r '.last_assistant_message // ""')
+if echo "$LAST_MSG" | grep -Fq "$DONE_SIGNAL" 2>/dev/null; then
+  HAS_DONE_SIGNAL=true
+fi
+
+# Fall back to transcript search
+if [ "$HAS_DONE_SIGNAL" = false ] && [ -f "$TRANSCRIPT" ]; then
   TAIL_400=$(tail -400 "$TRANSCRIPT" 2>/dev/null || true)
   if echo "$TAIL_400" | grep -Fq "$DONE_SIGNAL" 2>/dev/null; then
     HAS_DONE_SIGNAL=true
   fi
+fi
 
+if [ -f "$TRANSCRIPT" ]; then
   TAIL_40=$(tail -40 "$TRANSCRIPT" 2>/dev/null || true)
   if echo "$TAIL_40" | grep -qi '"is_error":\s*true' 2>/dev/null; then
     HAS_RECENT_ERRORS=true
