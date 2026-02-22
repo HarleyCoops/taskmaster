@@ -1,7 +1,7 @@
 ---
 name: taskmaster
 description: |
-  Codex session-log monitor plus same-process expect PTY injector
+  Codex wrapper plus same-process expect PTY injector
   that keeps work moving until an explicit parseable done signal is emitted.
 author: blader
 version: 4.2.0
@@ -17,7 +17,7 @@ skill implements the same completion contract externally.
 
 1. **Run Codex via wrapper**: `run-taskmaster-codex.sh` sets
    `CODEX_TUI_RECORD_SESSION=1` and a log path.
-2. **Monitor parses log events** and checks completion on each
+2. **Injector parses log events** and checks completion on each
    `task_complete` event.
 3. **Parseable token contract**:
    `TASKMASTER_DONE::<session_id>`
@@ -40,7 +40,7 @@ This gives external automation a deterministic completion marker to parse.
 ## Configuration
 
 - `TASKMASTER_MAX` (default `0`): max warning count before suppression in the
-  monitor. `0` means unlimited warnings.
+  stop hook. `0` means unlimited warnings.
 
 Fixed behavior (not configurable):
 - Done token prefix: `TASKMASTER_DONE`

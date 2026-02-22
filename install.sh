@@ -46,7 +46,6 @@ copy_skill_files() {
   safe_copy "$SCRIPT_DIR/run-taskmaster-codex.sh" "$skill_dir/run-taskmaster-codex.sh"
   safe_copy "$SCRIPT_DIR/check-completion.sh" "$skill_dir/check-completion.sh"
   safe_copy "$SCRIPT_DIR/hooks/check-completion.sh" "$skill_dir/hooks/check-completion.sh"
-  safe_copy "$SCRIPT_DIR/hooks/check-completion-codex.sh" "$skill_dir/hooks/check-completion-codex.sh"
   safe_copy "$SCRIPT_DIR/hooks/inject-continue-codex.sh" "$skill_dir/hooks/inject-continue-codex.sh"
   safe_copy "$SCRIPT_DIR/hooks/run-codex-expect-bridge.exp" "$skill_dir/hooks/run-codex-expect-bridge.exp"
 
@@ -55,7 +54,6 @@ copy_skill_files() {
   chmod +x "$skill_dir/run-taskmaster-codex.sh"
   chmod +x "$skill_dir/check-completion.sh"
   chmod +x "$skill_dir/hooks/check-completion.sh"
-  chmod +x "$skill_dir/hooks/check-completion-codex.sh"
   chmod +x "$skill_dir/hooks/inject-continue-codex.sh"
   chmod +x "$skill_dir/hooks/run-codex-expect-bridge.exp"
 }

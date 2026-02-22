@@ -19,8 +19,8 @@ Taskmaster is built around one idea: progress is not completion.
   Compliance prompts force the model back to the user’s actual request, not its
   own local notion of “good enough”.
 - Automation-safe signaling:
-  A deterministic done token makes completion parseable for wrappers, monitors,
-  and CI-style flows.
+  A deterministic done token makes completion parseable for wrappers and
+  CI-style flows.
 
 ## Core Contract
 
@@ -114,23 +114,10 @@ codex-taskmaster [args]
 
 Run Claude normally after install. Taskmaster hook enforcement is automatic.
 
-## Monitor-Only Mode (Codex)
-
-Use this if you only want read-only completion checks:
-
-```bash
-CODEX_TUI_RECORD_SESSION=1 \
-CODEX_TUI_SESSION_LOG_PATH=/tmp/codex-session.jsonl \
-codex
-
-bash ~/.codex/skills/taskmaster/hooks/check-completion-codex.sh \
-  --follow --log /tmp/codex-session.jsonl
-```
-
 ## Configuration
 
 - `TASKMASTER_MAX` (default `0`):
-  - Limits warning count in monitors.
+  - Limits stop-block warnings in hook checks.
   - `0` means unlimited warnings.
 
 ## Uninstall
